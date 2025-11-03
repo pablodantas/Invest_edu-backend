@@ -1,0 +1,244 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  GESTOR
+  SUPROT
+  DIRETOR_SUPROT
+}
+
+enum Funcao {
+  PROFESSOR
+  COORDENADOR
+  DIRETOR
+  TESOUREIRO
+  PRESIDENTE_CAIXA
+  OUTRO
+}
+
+enum PlanStatus {
+  PLANO_EM_CONSTRUCAO
+  EM_ANALISE
+  COLETA_ASSINATURA
+  EM_PROCESSO_DESCENTRALIZACAO
+  PLANO_CONCLUIDO
+  REJEITADO
+  APROVADO // legado (mantido para compatibilidade)
+}
+
+enum ItemTipo {
+  CUSTEIO
+  CAPITAL
+}
+
+enum SignatureKind {
+  PRESIDENTE_CAIXA
+  TESOUREIRO
+  OUTRO_MEMBRO
+  DIRETOR_SUPROT
+}
+
+enum SignatureMethod {
+  ELETRONICA
+  UPLOAD
+  AUTOMATICA
+}
+
+enum BudgetType {
+  CUSTEIO
+  CAPITAL
+}
+
+model User {
+  id                String      @id @default(uuid())
+  name              String
+  email             String      @unique
+  passwordHash      String
+  matricula         String      @unique
+  funcao            Funcao
+  role              Role        @default(GESTOR)
+  schoolUnitId      String?
+  schoolUnit        SchoolUnit? @relation(fields: [schoolUnitId], references: [id])
+  profileImageKey   String?
+  signatureImageKey String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  plansCreated Plan[]      @relation("PlansCreatedBy")
+  signatures   Signature[]
+
+  refreshTokens RefreshToken[]
+}
+
+model SchoolUnit {
+  id                   String       @id @default(uuid())
+  mecCode              String       @unique
+  name                 String
+  municipio            String
+  nte                  String
+  escritorioCriativo   String?
+  projetoAgroecologico String?
+  labRobotica          String?
+  labInformatica       String?
+  UnitBudget           UnitBudget[]
+  User                 User[]
+  Plan                 Plan[]
+
+  Decentralization Decentralization[]
+}
+
+model Plan {
+  id            String     @id @default(uuid())
+  title         String
+  description   String
+  solution      String
+  prazoInicio   String
+  prazoFim      String
+  status        PlanStatus @default(PLANO_EM_CONSTRUCAO)
+  qtdMatriculas Int
+  municipio     String
+  nte           String
+  totalCusteio  Decimal    @default(0)
+  totalCapital  Decimal    @default(0)
+  totalGeral    Decimal    @default(0)
+  payloadHash   String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+
+  schoolUnitId String
+  schoolUnit   SchoolUnit @relation(fields: [schoolUnitId], references: [id])
+
+  creatorId String
+  creator   User   @relation("PlansCreatedBy", fields: [creatorId], references: [id])
+
+  items         PlanItem[]
+  courses       PlanCourse[]
+  signatures    Signature[]
+  statusHistory PlanStatusHistory[]
+
+  PlanReturnIssue PlanReturnIssue[]
+
+  Decentralization Decentralization[]
+}
+
+model PlanItem {
+  id            String   @id @default(uuid())
+  planId        String
+  plan          Plan     @relation(fields: [planId], references: [id])
+  description   String
+  unidade       String
+  quantidade    Int
+  valorUnitario Decimal
+  tipo          ItemTipo
+  createdAt     DateTime @default(now())
+
+  PlanReturnIssue PlanReturnIssue[]
+}
+
+model PlanCourse {
+  id               String @id @default(uuid())
+  planId           String
+  plan             Plan   @relation(fields: [planId], references: [id])
+  name             String
+  studentsQuantity Int
+  modality         String
+}
+
+model Signature {
+  id          String          @id @default(uuid())
+  planId      String
+  plan        Plan            @relation(fields: [planId], references: [id])
+  signerId    String?
+  signer      User?           @relation(fields: [signerId], references: [id])
+  kind        SignatureKind
+  method      SignatureMethod
+  imageKey    String?
+  fullName    String
+  cargo       String
+  signedAt    DateTime        @default(now())
+  contentHash String
+  originNote  String?
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String
+  userAgent String?
+  ip        String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+}
+
+model PlanStatusHistory {
+  id        String      @id @default(uuid())
+  planId    String
+  plan      Plan        @relation(fields: [planId], references: [id])
+  from      PlanStatus?
+  to        PlanStatus
+  changedBy String?
+  changedAt DateTime    @default(now())
+  note      String?
+}
+
+model UnitBudget {
+  id            String     @id @default(uuid())
+  schoolUnitId  String
+  type          BudgetType
+  initialAmount Decimal    @db.Decimal(14, 2)
+  committed     Decimal    @default(0) @db.Decimal(14, 2)
+  updatedAt     DateTime   @updatedAt
+
+  schoolUnit SchoolUnit @relation(fields: [schoolUnitId], references: [id])
+
+  @@unique([schoolUnitId, type])
+}
+
+model PlanReturnIssue {
+  id        String   @id @default(uuid())
+  planId    String
+  itemId    String
+  field     String
+  message   String
+  createdAt DateTime @default(now())
+
+  plan Plan     @relation(fields: [planId], references: [id])
+  item PlanItem @relation(fields: [itemId], references: [id])
+
+  @@index([planId])
+  @@index([itemId])
+}
+
+
+enum DecentralizationStatus {
+  PENDENTE
+  CONCLUIDA
+}
+
+model Decentralization {
+  id            String                 @id @default(uuid())
+  schoolUnitId  String
+  planId        String?
+  type          BudgetType
+  amount        Decimal                @db.Decimal(14, 2)
+  status        DecentralizationStatus @default(PENDENTE)
+  createdAt     DateTime               @default(now())
+  concludedAt   DateTime?
+
+  schoolUnit    SchoolUnit             @relation(fields: [schoolUnitId], references: [id])
+  plan          Plan?                  @relation(fields: [planId], references: [id])
+
+  @@index([schoolUnitId, status, type])
+}
